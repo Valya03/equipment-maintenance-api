@@ -15,3 +15,11 @@ export const config = {
     process.env.WEATHER_API_URL || "https://api.open-meteo.com/v1/forecast",
   requestTimeoutMs: parseInt(process.env.REQUEST_TIMEOUT_MS, 10) || 5000,
 };
+
+export const config = {
+  // ... существующие поля
+  weatherThresholds: {
+    maxWindSpeed: parseFloat(process.env.WEATHER_MAX_WIND_SPEED) || 10,
+    maxPrecipitation: parseFloat(process.env.WEATHER_MAX_PRECIPITATION) || 0,
+  },
+};
