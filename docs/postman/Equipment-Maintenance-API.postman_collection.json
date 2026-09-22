@@ -62,7 +62,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', () => {\r\n  pm.response.to.have.status(201);\r\n});\r\n\r\npm.test('Response has equipment with id', () => {\r\n  const json = pm.response.json();\r\n  pm.expect(json.data).to.have.property('id');\r\n  pm.expect(json.data.serialNumber).to.eql('WT-001');\r\n  pm.expect(json.data).to.have.property('createdAt');\r\n  pm.expect(json.data).to.have.property('updatedAt');\r\n\r\n  // Сохраняем id и serialNumber для следующих запросов\r\n  pm.environment.set('equipmentId', json.data.id);\r\n  pm.environment.set('serialNumber', json.data.serialNumber);\r\n});\r\n\r\npm.test('Location header is set', () => {\r\n  pm.expect(pm.response.headers.get('Location')).to.include('/api/equipment/');\r\n});"
+                  "pm.test('Status code is 201', () => {\r\n  pm.response.to.have.status(201);\r\n});\r\n\r\npm.test('Response has equipment with id', () => {\r\n  const json = pm.response.json();\r\n  pm.expect(json.data).to.have.property('id');\r\n  pm.expect(json.data.serialNumber).to.eql('WT-001');\r\n  pm.expect(json.data).to.have.property('createdAt');\r\n  pm.expect(json.data).to.have.property('updatedAt');\r\n\r\n  // Сохраняем id и serialNumber для следующих запросов\r\n  pm.environment.set('equipmentId', json.data.id);\r\n  pm.environment.set('serialNumber', json.data.serialNumber);\r\n});\r\n\r\npm.test('Location header is set', () => {\r\n  const location = pm.response.headers.get('Location');\r\n  pm.expect(location).to.exist;\r\n  pm.expect(location).to.include('/api/equipment/');\r\n});"
                 ]
               }
             }
