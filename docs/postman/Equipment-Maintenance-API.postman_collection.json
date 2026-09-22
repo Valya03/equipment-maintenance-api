@@ -425,7 +425,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', () => {\r\n  pm.response.to.have.status(200);\r\n});\r\npm.test('Status changed to in_progress', () => {\r\n  const json = pm.response.json();\r\n  pm.expect(json.data.status).to.eql('in_progress');\r\n});"
+                  "pm.test('Status code is 200', () => {\r\n  pm.response.to.have.status(200);\r\n});\r\npm.test('Status changed to in_progress', () => {\r\n  const json = pm.response.json();\r\n  pm.expect(json.data.status).to.eql('in_progress');\r\n});\r\n\r\npm.test('Status must be one of allowed values', () => {\r\n  const json = pm.response.json();\r\n  pm.expect(['new', 'in_progress', 'done', 'rejected']).to.include(json.data.status);\r\n});\r\n"
                 ]
               }
             }
