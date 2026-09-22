@@ -97,6 +97,16 @@ curl http://localhost:3000/api/health
 | GET    | `/equipment/:id/requests` | Заявки по конкретной единице оборудования            |
 | GET    | `/equipment/:id/weather`  | Прогноз погоды и пригодность для наружных работ      |
 
+Параметры фильтрации для `GET /equipment`:
+
+- `status` — статус оборудования
+- `type` — тип оборудования
+- `sortBy` — поле сортировки (например, `name`, `installedAt`)
+- `sortOrder` — `asc` или `desc`
+- `page`, `limit` — пагинация
+
+Пример: `GET /api/equipment?page=1&limit=10&sortBy=name&sortOrder=asc`
+
 ### Заявки на обслуживание (Requests)
 
 | Метод  | Путь                   | Назначение                                      |
