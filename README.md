@@ -105,6 +105,8 @@ curl http://localhost:3000/api/health
 - `sortOrder` — `asc` или `desc`
 - `page`, `limit` — пагинация
 
+Пример: `GET /api/equipment?page=1&limit=10&sortBy=name&sortOrder=asc`
+
 ### Заявки на обслуживание (Requests)
 
 | Метод  | Путь                   | Назначение                                      |
