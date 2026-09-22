@@ -23,6 +23,9 @@ app.use(logger);
 // 3. Защитные заголовки
 app.use(helmet());
 
+// Отключить логирование favicon-запросов от браузера
+app.get("/favicon.ico", (req, res) => res.status(204).end());
+
 // 4. CORS - только явный список источников
 app.use(
   cors({
