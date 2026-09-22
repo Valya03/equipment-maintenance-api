@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "id": "77b6d50f-de2c-4df3-bd23-312c87cd2a52",
+    "name": "Wind Turbine Beta",
+    "type": "turbine",
+    "serialNumber": "WT-002",
+    "location": {
+      "lat": 55.75,
+      "lon": 37.62
+    },
+    "status": "operational",
+    "installedAt": "2023-01-15T00:00:00.000Z",
+    "createdAt": "2026-09-22T04:51:12.169Z",
+    "updatedAt": "2026-09-22T04:51:12.169Z"
+  }
+]
