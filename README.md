@@ -1,271 +1,200 @@
 # Equipment Maintenance API
 
-REST API для учёта заявок на техническое обслуживание оборудования производственной площадки (ветропарка).
+REST API для учёта заявок на техобслуживание оборудования ветропарка.
 
-Проект выполнен в рамках **Case Lab «JavaScript»** (сентябрь 2026, Гринатом Росатом), Кейс 2 - REST API на Express.
+Учебный проект в рамках Case Lab «JavaScript» (Гринатом Росатом, сентябрь 2026).
+Первый кейс - CRUD на Express с файловым хранилищем. Второй - перенос на PostgreSQL:
+та же схема API, но данные уже в реляционной БД, плюс новые сущности и отчёты.
 
----
+Контракт API из первого кейса сохранён. Все старые эндпоинты продолжают работать
+без изменений - это было главным требованием при переносе.
 
-## Описание сервиса
+## Стек
 
-Сервис предоставляет REST API для:
-
-- ведения справочника оборудования (турбины, инверторы, датчики, подстанции);
-- ведения заявок на обслуживание оборудования;
-- контроля жизненного цикла заявки (переходы статусов);
-- получения прогноза погоды по координатам объекта и оценки пригодности окна для наружных работ.
-
-Данные на текущей неделе хранятся в JSON-файлах (`src/data/`). Доступ к данным осуществляется только через слой репозиториев, далее можно будет заменить JSON-хранилище на PostgreSQL без изменения сервисов и контроллеров.
-
----
-
-## Требования к окружению
-
-- **Node.js** версии 18+ (используется встроенный `fetch`)
-- **npm** (идёт в комплекте с Node.js)
-- **Postman** (для тестирования, опционально)
-
----
+- Node.js 18+
+- Express 5
+- PostgreSQL 16 (в Docker)
+- Sequelize (ORM + миграции + сиды)
+- Joi (валидация входных данных)
+- Postman (тесты API)
 
 ## Установка и запуск
 
+Нужен установленный Docker Desktop и Node.js.
+
 ```bash
-# Клонирование репозитория
-git clone https://github.com/Valya03/equipment-maintenance-api
+git clone https://github.com/Valya03/equipment-maintenance-api.git
 cd equipment-maintenance-api
-
-# Установка зависимостей
 npm install
-
-# Создание .env на основе шаблона
 cp .env.example .env
-
-# Запуск в режиме разработки (с автоперезапуском)
+docker compose up -d
+npx sequelize-cli db:migrate
+npx sequelize-cli db:seed:all
 npm run dev
-
-# Запуск в обычном режиме
-npm start
 ```
 
-После запуска сервер будет доступен по адресу `http://localhost:3000`.
+Сервер поднимется на `http://localhost:3000`. Порт и остальные параметры - в `.env`.
 
-Проверка доступности:
+Если локальный PostgreSQL уже занимает порт 5432, его надо остановить (служба
+`postgresql-x64-NN` в Windows) либо поменять `DB_PORT` в `.env` и `docker-compose.yml`.
+
+## База данных
+
+### Схема
+
+```
+sites ───< equipment ───< maintenance_requests ───< request_status_history
+              │                    │
+              │                    └──< request_assignees >── technicians
+              │
+              └──── equipment_passports (1:1)
+```
+
+Пять таблиц для справочников и заявок, две - для связей и истории.
+
+### Связи
+
+| Связь                                          | Тип | Реализация                                          |
+| ---------------------------------------------- | --- | --------------------------------------------------- |
+| sites -> equipment                             | 1:N | Внешний ключ `site_id`                              |
+| equipment -> equipment_passports               | 1:1 | `equipment_id` с UNIQUE                             |
+| equipment -> maintenance_requests              | 1:N | Внешний ключ `equipment_id`                         |
+| maintenance_requests -> request_status_history | 1:N | Внешний ключ `request_id`                           |
+| maintenance_requests ↔ technicians             | N:M | Через `request_assignees` с полями `role` и `hours` |
+
+Пара `(request_id, technician_id)` в `request_assignees` уникальна - повторно
+назначить одного специалиста на ту же заявку нельзя.
+
+### Правила ON DELETE
+
+- `equipment.site_id` -> `RESTRICT` - площадку с оборудованием не удалить.
+- `equipment_passports.equipment_id` -> `CASCADE` - паспорт живёт только с оборудованием.
+- `maintenance_requests.equipment_id` -> `RESTRICT` - оборудование с заявками не удалить.
+- `request_status_history.request_id` -> `RESTRICT` - история не должна пропадать молча.
+- `request_assignees.request_id` -> `CASCADE` - назначения уходят вместе с заявкой.
+- `request_assignees.technician_id` -> `RESTRICT` - специалиста с назначениями не удалить.
+
+При удалении заявки история и назначения сносятся явно в транзакции - иначе
+`RESTRICT` не даст удалить саму заявку.
+
+### Про нормализацию
+
+Схема в 3НФ. Справочные значения (тип оборудования, статус, приоритет, роль)
+вынесены в ENUM-типы PostgreSQL. Паспорт - отдельная таблица, чтобы не держать
+NULL-колонки у оборудования без паспорта. История статусов и назначения - тоже
+отдельные таблицы, никакого дублирования данных в `maintenance_requests`.
+
+### Миграции
+
+Схема создаётся только миграциями, `sync({ force: true })` не используется.
 
 ```bash
-curl http://localhost:3000/api/health
+npx sequelize-cli db:migrate                # применить все
+npx sequelize-cli db:migrate:undo:all       # откатить все
+npx sequelize-cli db:migrate                # применить снова
 ```
 
----
+Цикл «применить -> откатить -> применить» проходит без ошибок. Каждая миграция
+содержит рабочий `down()`.
 
-## Переменные окружения
+### Сиды
 
-Все параметры конфигурации задаются через переменные окружения (см. `.env.example`).
+Заполняют БД так, чтобы можно было проверить все связи и оба отчёта:
 
-| Переменная                  | Описание                                      | Значение по умолчанию                    |
-| --------------------------- | --------------------------------------------- | ---------------------------------------- |
-| `PORT`                      | Порт, на котором слушает сервер               | `3000`                                   |
-| `NODE_ENV`                  | Режим работы (`development` / `production`)   | `development`                            |
-| `CORS_ORIGINS`              | Список разрешённых источников через запятую   | `http://localhost:3000`                  |
-| `RATE_LIMIT_WINDOW_MS`      | Окно ограничения частоты запросов (мс)        | `900000` (15 мин)                        |
-| `RATE_LIMIT_MAX`            | Максимум запросов в окне                      | `100`                                    |
-| `WEATHER_API_URL`           | URL внешнего погодного API                    | `https://api.open-meteo.com/v1/forecast` |
-| `REQUEST_TIMEOUT_MS`        | Таймаут внешних запросов (мс)                 | `5000`                                   |
-| `WEATHER_MAX_WIND_SPEED`    | Порог скорости ветра для наружных работ (м/с) | `10`                                     |
-| `WEATHER_MAX_PRECIPITATION` | Порог осадков для наружных работ (мм)         | `0`                                      |
+- 2 площадки
+- 6 единиц оборудования (турбины, инвертор, датчик, подстанция)
+- 6 паспортов
+- 5 специалистов
+- 20 заявок в разных статусах и приоритетах
+- 20 назначений бригад (по 1 lead и 1 member)
+- 35 записей в журнале статусов
 
----
-
-## Эндпоинты API
-
-Базовый URL: `http://localhost:3000/api`
-
-### Health
-
-| Метод | Путь      | Назначение                   |
-| ----- | --------- | ---------------------------- |
-| GET   | `/health` | Проверка доступности сервиса |
-
-### Оборудование (Equipment)
-
-| Метод  | Путь                      | Назначение                                           |
-| ------ | ------------------------- | ---------------------------------------------------- |
-| GET    | `/equipment`              | Список оборудования (фильтры, сортировка, пагинация) |
-| POST   | `/equipment`              | Создание единицы оборудования                        |
-| GET    | `/equipment/:id`          | Карточка оборудования                                |
-| PATCH  | `/equipment/:id`          | Частичное обновление                                 |
-| DELETE | `/equipment/:id`          | Удаление (запрещено при наличии открытых заявок)     |
-| GET    | `/equipment/:id/requests` | Заявки по конкретной единице оборудования            |
-| GET    | `/equipment/:id/weather`  | Прогноз погоды и пригодность для наружных работ      |
-
-Параметры фильтрации для `GET /equipment`:
-
-- `status` — статус оборудования
-- `type` — тип оборудования
-- `sortBy` — поле сортировки (например, `name`, `installedAt`)
-- `sortOrder` — `asc` или `desc`
-- `page`, `limit` — пагинация
-
-Пример: `GET /api/equipment?page=1&limit=10&sortBy=name&sortOrder=asc`
-
-### Заявки на обслуживание (Requests)
-
-| Метод  | Путь                   | Назначение                                      |
-| ------ | ---------------------- | ----------------------------------------------- |
-| GET    | `/requests`            | Список заявок (фильтры, сортировка, пагинация)  |
-| POST   | `/requests`            | Создание заявки                                 |
-| GET    | `/requests/:id`        | Карточка заявки                                 |
-| PATCH  | `/requests/:id`        | Редактирование полей заявки                     |
-| PATCH  | `/requests/:id/status` | Смена статуса с проверкой допустимости перехода |
-| DELETE | `/requests/:id`        | Удаление заявки                                 |
-
----
-
-## Модель данных
-
-### Equipment (Оборудование)
-
-| Поле           | Тип           | Ограничения                                                   |
-| -------------- | ------------- | ------------------------------------------------------------- |
-| `id`           | string (uuid) | Генерируется сервером                                         |
-| `name`         | string        | 3–100 символов, обязательное                                  |
-| `type`         | string        | `turbine` \| `inverter` \| `sensor` \| `substation`           |
-| `serialNumber` | string        | Уникальный в пределах системы                                 |
-| `location`     | object        | `{ lat: number, lon: number }`                                |
-| `status`       | string        | `operational` \| `maintenance` \| `fault` \| `decommissioned` |
-| `installedAt`  | ISO-date      | Не в будущем                                                  |
-| `createdAt`    | ISO-date      | Проставляется сервером                                        |
-| `updatedAt`    | ISO-date      | Проставляется сервером                                        |
-
-### Request (Заявка на обслуживание)
-
-| Поле          | Тип           | Ограничения                                                         |
-| ------------- | ------------- | ------------------------------------------------------------------- |
-| `id`          | string (uuid) | Генерируется сервером                                               |
-| `equipmentId` | string (uuid) | Ссылка на существующее оборудование                                 |
-| `title`       | string        | 5–120 символов, обязательное                                        |
-| `description` | string        | До 2000 символов                                                    |
-| `priority`    | string        | `low` \| `medium` \| `high` \| `critical`                           |
-| `status`      | string        | `new` \| `in_progress` \| `done` \| `rejected` (по умолчанию `new`) |
-| `plannedAt`   | ISO-datetime  | Необязательное                                                      |
-| `createdAt`   | ISO-datetime  | Проставляется сервером                                              |
-| `updatedAt`   | ISO-datetime  | Проставляется сервером                                              |
-
----
-
-## Переходы статусов заявки
-
-Допустимые переходы:
-
-- `new -> in_progress`
-- `new -> rejected`
-- `in_progress -> done`
-- `in_progress -> rejected`
-
-Недопустимый переход возвращает `409 Conflict`.
-
-Схема переходов:
-
-```
-       ┌──────────────────┐
-       │       new        │
-       └────────┬─────────┘
-                │
-        ┌───────┴────────┐
-        ▼                ▼
-┌───────────────┐   ┌──────────┐
-│  in_progress  │   │ rejected │
-└───────┬───────┘   └──────────┘
-        │                ▲
-        │                │
-        ▼                │
-   ┌────────┐            │
-   │  done  │            │
-   └────────┘            │
-                         │
-        ┌────────────────┘
-        │ (in_progress -> rejected)
+```bash
+npx sequelize-cli db:seed:all
+npx sequelize-cli db:seed:undo:all          # откат
 ```
 
----
+### Переменные окружения БД
 
-## Формат ответа об ошибке
+| Переменная        | По умолчанию            | Описание                          |
+| ----------------- | ----------------------- | --------------------------------- |
+| `DB_HOST`         | `localhost`             | хост                              |
+| `DB_PORT`         | `5432`                  | порт                              |
+| `DB_NAME`         | `equipment_maintenance` | база                              |
+| `DB_USER`         | `app_user`              | пользователь                      |
+| `DB_PASSWORD`     | `app_password`          | пароль                            |
+| `DB_POOL_MAX`     | `10`                    | макс. соединений в пуле           |
+| `DB_POOL_MIN`     | `0`                     | мин. соединений                   |
+| `DB_POOL_ACQUIRE` | `30000`                 | таймаут получения соединения (мс) |
+| `DB_POOL_IDLE`    | `10000`                 | таймаут простоя (мс)              |
+| `DB_LOGGING`      | `false`                 | логировать SQL                    |
 
-Все ошибки возвращаются в едином формате:
+## Эндпоинты
 
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Некорректные данные запроса",
-    "details": [{ "field": "priority", "message": "Недопустимое значение" }],
-    "requestId": "b1f2c3d4"
-  }
-}
+Базовый путь - `/api`. Ниже - сводка. Полное описание с примерами - в Postman-коллекции.
+
+| Метод  | Путь                              | Что делает                            |
+| ------ | --------------------------------- | ------------------------------------- |
+| GET    | `/health`                         | проверка, что сервис жив              |
+| GET    | `/sites/:id/summary`              | сводка по площадке                    |
+| GET    | `/equipment`                      | список с фильтрами и пагинацией       |
+| POST   | `/equipment`                      | создать оборудование                  |
+| GET    | `/equipment/:id`                  | карточка (с паспортом и площадкой)    |
+| PATCH  | `/equipment/:id`                  | обновить                              |
+| DELETE | `/equipment/:id`                  | удалить (нельзя при открытых заявках) |
+| GET    | `/equipment/:id/requests`         | заявки по оборудованию                |
+| GET    | `/equipment/:id/weather`          | прогноз погоды по координатам         |
+| GET    | `/requests`                       | список заявок                         |
+| POST   | `/requests`                       | создать заявку                        |
+| GET    | `/requests/:id`                   | карточка заявки                       |
+| PATCH  | `/requests/:id`                   | обновить поля                         |
+| PATCH  | `/requests/:id/status`            | сменить статус                        |
+| GET    | `/requests/:id/history`           | история статусов                      |
+| POST   | `/requests/:id/assignees`         | назначить бригаду                     |
+| DELETE | `/requests/:id/assignees/:userId` | снять специалиста                     |
+| DELETE | `/requests/:id`                   | удалить заявку                        |
+| GET    | `/reports/equipment-load`         | нагрузка на оборудование              |
+
+Списочные эндпоинты поддерживают `status`, `priority`, `equipmentId`, `dateFrom`,
+`dateTo`, `sortBy`, `sortOrder`, `page`, `limit`. Фильтрация, сортировка и
+пагинация выполняются на стороне БД (WHERE / ORDER BY / LIMIT / OFFSET), не в JS.
+
+### Отчёт по нагрузке
+
+`GET /reports/equipment-load` - прямой SQL с JOIN, GROUP BY и HAVING.
+
+Параметры:
+
+- `minRequests` - минимальное число заявок (фильтрация групп через HAVING);
+- `dateFrom`, `dateTo` - период создания заявок.
+
+Возвращает по каждой единице оборудования: общее число заявок, число закрытых,
+суммарные плановые трудозатраты (часы) и дату последнего обслуживания.
+
+### Сводка по площадке
+
+`GET /sites/:id/summary` возвращает количество заявок по статусам, по приоритетам
+и среднее время закрытия в часах (для заявок в статусе `done`).
+
+## Статусы заявки
+
+```
+new ──► in_progress ──► done
+ │            │
+ └──► rejected ◄──┘
 ```
 
-**Коды ошибок:**
+Разрешённые переходы: `new -> in_progress`, `new -> rejected`,
+`in_progress -> done`, `in_progress -> rejected`.
 
-- `VALIDATION_ERROR` - 400 (некорректные данные)
-- `NOT_FOUND` - 404 (ресурс не найден)
-- `CONFLICT` - 409 (конфликт: дубликат серийного номера, недопустимый переход статуса, наличие открытых заявок)
-- `TOO_MANY_REQUESTS` - 429 (превышен лимит запросов)
-- `INTERNAL_ERROR` - 500 (непредвиденная ошибка)
+Смена статуса выполняется в одной транзакции: обновление заявки + запись в
+`request_status_history`. Если что-то падает - обе операции откатываются.
 
----
+Перевод в `in_progress` без назначенной бригады запрещён - сервер вернёт 409.
 
-## Примеры запросов и ответов
+## Ошибки
 
-### Успешное создание оборудования (POST /api/equipment)
-
-**Запрос:**
-
-```json
-{
-  "name": "Wind Turbine Alpha",
-  "type": "turbine",
-  "serialNumber": "WT-001",
-  "location": { "lat": 55.75, "lon": 37.62 },
-  "status": "operational",
-  "installedAt": "2023-01-15T00:00:00.000Z"
-}
-```
-
-**Ответ (201 Created):**
-
-Заголовок `Location: /api/equipment/7f63e879-44ab-4867-9281-2c283efa632e`
-
-```json
-{
-  "data": {
-    "id": "7f63e879-44ab-4867-9281-2c283efa632e",
-    "name": "Wind Turbine Alpha",
-    "type": "turbine",
-    "serialNumber": "WT-001",
-    "location": { "lat": 55.75, "lon": 37.62 },
-    "status": "operational",
-    "installedAt": "2023-01-15T00:00:00.000Z",
-    "createdAt": "2026-09-22T04:27:25.164Z",
-    "updatedAt": "2026-09-22T04:27:25.164Z"
-  }
-}
-```
-
-### Список оборудования с пагинацией (GET /api/equipment)
-
-**Запрос:** `GET /api/equipment?page=1&limit=10&status=operational`
-
-**Ответ (200 OK):**
-
-```json
-{
-  "data": [],
-  "meta": { "total": 0, "page": 1, "limit": 10 }
-}
-```
-
-### Ошибка валидации (POST /api/equipment с пустым телом)
-
-**Ответ (400 Bad Request):**
+Все ошибки в одном формате:
 
 ```json
 {
@@ -273,147 +202,99 @@ curl http://localhost:3000/api/health
     "code": "VALIDATION_ERROR",
     "message": "Некорректные данные запроса",
     "details": [
-      { "field": "name", "message": "\"name\" is required" },
-      { "field": "type", "message": "\"type\" is required" }
+      { "field": "minRequests", "message": "\"minRequests\" must be a number" }
     ],
-    "requestId": "c494044d"
+    "requestId": "f324a9c4"
   }
 }
 ```
 
-### Конфликт при дубликате serialNumber (POST /api/equipment)
+Коды:
 
-**Ответ (409 Conflict):**
+| Код                   | HTTP | Когда                                                                       |
+| --------------------- | ---- | --------------------------------------------------------------------------- |
+| `VALIDATION_ERROR`    | 400  | невалидные body/params/query                                                |
+| `NOT_FOUND`           | 404  | ресурс или связанная сущность не найдена                                    |
+| `CONFLICT`            | 409  | дубль serialNumber, недопустимый переход, открытые заявки, нет исполнителей |
+| `WEATHER_UNAVAILABLE` | 503  | внешний погодный API недоступен или таймаут                                 |
+| `TOO_MANY_REQUESTS`   | 429  | превышен rate limit                                                         |
+| `INTERNAL_ERROR`      | 500  | непредвиденная ошибка                                                       |
 
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Оборудование с серийным номером WT-001 уже существует",
-    "requestId": "e1f2a3b4"
-  }
-}
-```
+`requestId` пишется в лог и в заголовок `X-Request-Id`, по нему можно найти
+конкретный запрос в консоли сервера.
 
-### Недопустимый переход статуса (PATCH /api/requests/:id/status)
+## Что под капотом
 
-**Ответ (409 Conflict):**
+- CORS с явным списком источников из `CORS_ORIGINS`, `*` не используется.
+- Rate limit: 100 запросов за 15 минут на все `/api`. При превышении - 429.
+- Helmet - защитные HTTP-заголовки, ограничение размера тела - 1 МБ.
+- SQL - только параметризованные запросы (bind / replacements), конкатенации
+  пользовательского ввода нет.
+- Сортировка - только по белому списку полей, значение `sortBy` из запроса
+  напрямую в ORDER BY не подставляется.
+- `limit` и `offset` ограничены сверху, значения вне диапазона -> 400.
+- Секреты только в `.env`, в репозитории лежит `.env.example`.
 
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Недопустимый переход статуса: in_progress -> new",
-    "requestId": "a9b8c7d6"
-  }
-}
-```
-
-### Запрет удаления оборудования с открытыми заявками (DELETE /api/equipment/:id)
-
-**Ответ (409 Conflict):**
-
-```json
-{
-  "error": {
-    "code": "CONFLICT",
-    "message": "Невозможно удалить оборудование: по нему есть 1 открытых заявок",
-    "requestId": "6e1d7de5"
-  }
-}
-```
-
----
-
-## Правила безопасности
-
-### CORS
-
-Разрешённые источники задаются через переменную `CORS_ORIGINS` (по умолчанию `http://localhost:3000`). Использование `*` запрещено. Список источников явный, потому что API будет вызываться со своего фронтенда, а не со сторонних сайтов.
-
-### Rate limiting
-
-На все маршруты `/api` установлено ограничение: 100 запросов за 15 минут (настраивается через `RATE_LIMIT_WINDOW_MS` и `RATE_LIMIT_MAX`). При превышении возвращается `429 Too Many Requests` с заголовками `RateLimit-*`.
-
-### Защитные HTTP-заголовки
-
-Используется библиотека `helmet` - устанавливает заголовки `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security` и другие.
-
-### Ограничение размера тела запроса
-
-Тело запроса ограничено 1 МБ (`express.json({ limit: '1mb' })`).
-
-### Cookie
-
-В текущей реализации cookie не используются. При необходимости для аутентификации на Неделе 3 флаги будут установлены так: `HttpOnly`, `Secure`, `SameSite=Strict` (защита от CSRF и XSS).
-
-### Отсутствие секретов в репозитории
-
-Все секреты и параметры окружения хранятся только в `.env` (который добавлен в `.gitignore`). В репозитории есть только `.env.example`. В production в ответе об ошибке не возвращаются стек-трейсы (проверяется по `NODE_ENV`).
-
----
-
-## Структура проекта
+## Структура
 
 ```
-equipment-maintenance-api/
-├── docs/
-│   └── postman/
-│       ├── Equipment-Maintenance-API.postman_collection.json
-│       └── Local.postman_environment.json
-├── src/
-│   ├── app.js                  # Сборка приложения (экспортируется для тестов)
-│   ├── server.js               # Запуск сервера
-│   ├── config/
-│   │   └── index.js            # Централизованная конфигурация
-│   ├── routes/                 # Маршруты (роутеры Express)
-│   ├── controllers/            # Тонкие контроллеры
-│   ├── services/               # Бизнес-логика
-│   ├── repositories/           # Доступ к данным (JSON-файлы)
-│   ├── middlewares/            # Middleware: requestId, logger, validate, errorHandler, notFound, asyncHandler
-│   ├── validators/             # Схемы Joi
-│   ├── errors/                 # Классы ошибок (AppError, NotFoundError, ConflictError, ValidationError)
-│   └── data/                   # JSON-хранилище (equipment.json, requests.json)
-├── .env.example
-├── .gitignore
-├── package.json
-└── README.md
+src/
+├── app.js                 сборка Express-приложения
+├── server.js              запуск + подключение к БД
+├── config/                конфиг (env, Sequelize-инстанс, sequelize-cli)
+├── migrations/            миграции схемы
+├── seeders/               сиды с демо-данными
+├── models/                модели Sequelize + ассоциации
+├── repositories/          доступ к данным
+├── services/              бизнес-логика и транзакции
+├── controllers/           обработчики HTTP
+├── routes/                маршруты
+├── middlewares/           requestId, logger, validate, errorHandler
+├── validators/            схемы Joi
+├── errors/                классы ошибок
+└── data/                  (пусто, файловое хранилище удалено после переноса)
+
+docs/postman/              коллекция и окружение Postman
+docker-compose.yml         PostgreSQL
+.sequelizerc               пути для sequelize-cli
+.env.example
 ```
 
-### Архитектура
+Слои идут строго по цепочке `Routes -> Controllers -> Services -> Repositories`.
+Работа с БД - только в репозиториях, бизнес-логика - в сервисах, контроллеры
+только принимают запрос и отдают ответ.
 
-Проект построен по слоистой архитектуре:
+## Откат и пересоздание окружения
+
+```bash
+# Откатить миграции
+npx sequelize-cli db:migrate:undo:all
+
+# Применить заново
+npx sequelize-cli db:migrate
+
+# Пересоздать данные
+npx sequelize-cli db:seed:all
+```
+
+Полный сброс (удаляет контейнер и том с данными):
+
+```bash
+docker compose down -v
+docker compose up -d
+npx sequelize-cli db:migrate
+npx sequelize-cli db:seed:all
+```
+
+## Тесты
+
+В Postman лежит готовая коллекция: `docs/postman/Equipment-Maintenance-API.postman_collection.json`
+и окружение `docs/postman/Local.postman_environment.json`.
+
+47 запросов, сгруппированы по ресурсам (Health, Equipment, Requests, Sites,
+Reports, Negative tests, Cleanup). Каждый запрос содержит pm.test на код ответа
+и структуру тела. Негативные сценарии покрывают 400, 404, 409, 429 и 503.
 
 ```
-Routes -> Controllers -> Services -> Repositories
+
 ```
-
-- **Routes** - определяют URL и HTTP-методы, подключают валидацию.
-- **Controllers** - принимают запрос, вызывают сервис, формируют ответ.
-- **Services** - содержат бизнес-логику (проверки, переходы статусов).
-- **Repositories** - единственное место работы с данными. Изолированы за интерфейсом, чтобы на Неделе 3 заменить JSON на PostgreSQL.
-
-Сборка приложения (`app.js`) отделена от запуска сервера (`server.js`) - это позволяет подключать приложение в тестах (Jest + Supertest) без открытия порта.
-
----
-
-## Тестирование в Postman
-
-Коллекция покрывает все эндпоинты, сгруппирована по ресурсам (`Health`, `Equipment`, `Requests`, `Negative tests`), использует переменные окружения `{{baseUrl}}`, `{{equipmentId}}`, `{{requestId}}`.
-
-В запросах написаны автотесты `pm.test` на код ответа и структуру тела, а также сохранены негативные сценарии:
-
-- `400` - некорректное тело запроса
-- `404` - несуществующий идентификатор
-- `409` - дубликат серийного номера, недопустимый переход статуса, наличие открытых заявок
-- `429` - превышение лимита частоты запросов
-
-Импорт коллекции: **Postman -> Import -> выберите файлы из `docs/postman/`**.
-
----
-
-## Автор
-
-**Валентина Пятерева** - [GitHub @Valya03](https://github.com/Valya03)
-
-Case Lab «JavaScript», сентябрь 2026, Гринатом Росатом.
