@@ -43,4 +43,22 @@ export const requestController = {
     await requestService.delete(req.params.id);
     res.status(204).send();
   }),
+
+  getHistory: asyncHandler(async (req, res) => {
+    const history = await requestService.getHistory(req.params.id);
+    res.status(200).json({ data: history });
+  }),
+
+  assignTeam: asyncHandler(async (req, res) => {
+    const request = await requestService.assignTeam(
+      req.params.id,
+      req.body.assignees,
+    );
+    res.status(200).json({ data: request });
+  }),
+
+  removeAssignee: asyncHandler(async (req, res) => {
+    await requestService.removeAssignee(req.params.id, req.params.userId);
+    res.status(204).send();
+  }),
 };

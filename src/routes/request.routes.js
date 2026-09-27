@@ -5,6 +5,7 @@ import {
   createRequestSchema,
   updateRequestSchema,
   updateStatusSchema,
+  assignTeamSchema,
 } from "../validators/request.validator.js";
 
 const router = Router();
@@ -16,6 +17,16 @@ router.post(
   validate({ body: createRequestSchema }),
   requestController.create,
 );
+
+router.get("/:id/history", requestController.getHistory);
+
+router.post(
+  "/:id/assignees",
+  validate({ body: assignTeamSchema }),
+  requestController.assignTeam,
+);
+
+router.delete("/:id/assignees/:userId", requestController.removeAssignee);
 
 router.get("/:id", requestController.getById);
 
