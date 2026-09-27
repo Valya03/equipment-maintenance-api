@@ -1,111 +1,69 @@
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 export class BaseRepository {
   /**
-   * @param {string} fileName - имя JSON-файла (например, 'equipment.json')
+   * @param {import('sequelize').ModelStatic<any>} model - Sequelize-модель
    */
-  constructor(fileName) {
-    this.filePath = path.join(__dirname, "..", "data", fileName);
+  constructor(model) {
+    this.model = model;
   }
 
   /**
-   * Чтение данных из файла
-   * @returns {Promise<Array>}
+   * Преобразование модели в объект для API.
+   * Подклассы могут переопределить для смены формата полей.
    */
-  async _readData() {
-    try {
-      const raw = await fs.readFile(this.filePath, "utf-8");
-      return JSON.parse(raw);
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        // Файла нет , возвращаю пустой массив
-        return [];
-      }
-      throw error;
-    }
+  _toApiFormat(instance) {
+    if (!instance) return null;
+    return instance.get({ plain: true });
   }
 
   /**
-   * Запись данных в файл
-   * @param {Array} data
+   * Универсальный поиск с фильтрами, сортировкой и пагинацией.
+   * @param {Object} params - { where, order, limit, offset, include }
    */
-  async _writeData(data) {
-    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2), "utf-8");
+  async findAll(params = {}) {
+    const items = await this.model.findAll(params);
+    return items.map((i) => this._toApiFormat(i));
   }
 
   /**
-   * Получить все записи
-   * @returns {Promise<Array>}
+   * Поиск с подсчётом общего количества (для мета-информации пагинации).
    */
-  async findAll() {
-    return this._readData();
+  async findAndCountAll(params = {}) {
+    const result = await this.model.findAndCountAll(params);
+    return {
+      rows: result.rows.map((i) => this._toApiFormat(i)),
+      count: result.count,
+    };
   }
 
-  /**
-   * Найти запись по id
-   * @param {string} id
-   * @returns {Promise<Object|null>}
-   */
-  async findById(id) {
-    const data = await this._readData();
-    return data.find((item) => item.id === id) || null;
+  async findById(id, options = {}) {
+    const item = await this.model.findByPk(id, options);
+    return item ? this._toApiFormat(item) : null;
   }
 
-  /**
-   * Найти одну запись по произвольному предикату
-   * @param {Function} predicate
-   * @returns {Promise<Object|null>}
-   */
-  async findOne(predicate) {
-    const data = await this._readData();
-    return data.find(predicate) || null;
+  async findOne(where, options = {}) {
+    const item = await this.model.findOne({ where, ...options });
+    return item ? this._toApiFormat(item) : null;
   }
 
-  /**
-   * Создать запись
-   * @param {Object} entity
-   * @returns {Promise<Object>}
-   */
-  async create(entity) {
-    const data = await this._readData();
-    data.push(entity);
-    await this._writeData(data);
-    return entity;
+  async create(entity, options = {}) {
+    const created = await this.model.create(entity, options);
+    return this._toApiFormat(created);
   }
 
-  /**
-   * Обновить запись по id
-   * @param {string} id
-   * @param {Object} updates
-   * @returns {Promise<Object|null>}
-   */
-  async update(id, updates) {
-    const data = await this._readData();
-    const index = data.findIndex((item) => item.id === id);
-    if (index === -1) return null;
-
-    data[index] = { ...data[index], ...updates };
-    await this._writeData(data);
-    return data[index];
+  async update(id, updates, options = {}) {
+    const [affectedCount] = await this.model.update(updates, {
+      where: { id },
+      ...options,
+    });
+    if (affectedCount === 0) return null;
+    return this.findById(id, options);
   }
 
-  /**
-   * Удалить запись по id
-   * @param {string} id
-   * @returns {Promise<boolean>}
-   */
-  async delete(id) {
-    const data = await this._readData();
-    const index = data.findIndex((item) => item.id === id);
-    if (index === -1) return false;
-
-    data.splice(index, 1);
-    await this._writeData(data);
-    return true;
+  async delete(id, options = {}) {
+    const deletedCount = await this.model.destroy({
+      where: { id },
+      ...options,
+    });
+    return deletedCount > 0;
   }
 }
