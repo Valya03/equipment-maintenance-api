@@ -50,8 +50,19 @@ export class WeatherService {
       };
     } catch (error) {
       clearTimeout(timeout);
-      // Не роняю сервис при недоступности внешнего API
-      throw new Error(`Не удалось получить прогноз погоды: ${error.message}`);
+
+      // Определяем статус ошибки: таймаут vs недоступность
+      const isTimeout =
+        error.name === "AbortError" || error.message.includes("aborted");
+
+      const err = new Error(
+        isTimeout
+          ? "Погодный сервис не ответил вовремя"
+          : `Не удалось получить прогноз погоды: ${error.message}`,
+      );
+      err.statusCode = 503;
+      err.code = "WEATHER_UNAVAILABLE";
+      throw err;
     }
   }
 }

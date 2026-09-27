@@ -1,32 +1,39 @@
+import { MaintenanceRequest } from "../models/maintenance-request.model.js";
 import { BaseRepository } from "./base.repository.js";
 
 export class RequestRepository extends BaseRepository {
   constructor() {
-    super("requests.json");
+    super(MaintenanceRequest);
   }
 
-  /**
-   * Найти все заявки по идентификатору оборудования
-   * @param {string} equipmentId
-   * @returns {Promise<Array>}
-   */
+  _toApiFormat(instance) {
+    if (!instance) return null;
+    const plain = instance.get({ plain: true });
+    return {
+      id: plain.id,
+      equipmentId: plain.equipment_id,
+      title: plain.title,
+      description: plain.description,
+      priority: plain.priority,
+      status: plain.status,
+      plannedAt: plain.planned_at,
+      createdBy: plain.created_by,
+      createdAt: plain.createdAt,
+      updatedAt: plain.updatedAt,
+    };
+  }
+
   async findByEquipmentId(equipmentId) {
-    const data = await this._readData();
-    return data.filter((item) => item.equipmentId === equipmentId);
+    return this.findAll({ where: { equipment_id: equipmentId } });
   }
 
-  /**
-   * Найти незакрытые заявки по оборудованию (статусы new и in_progress)
-   * @param {string} equipmentId
-   * @returns {Promise<Array>}
-   */
   async findOpenByEquipmentId(equipmentId) {
-    const data = await this._readData();
-    return data.filter(
-      (item) =>
-        item.equipmentId === equipmentId &&
-        ["new", "in_progress"].includes(item.status),
-    );
+    return this.findAll({
+      where: {
+        equipment_id: equipmentId,
+        status: ["new", "in_progress"],
+      },
+    });
   }
 }
 
