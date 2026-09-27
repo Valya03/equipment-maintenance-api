@@ -18,4 +18,19 @@ export const config = {
     maxWindSpeed: parseFloat(process.env.WEATHER_MAX_WIND_SPEED) || 10,
     maxPrecipitation: parseFloat(process.env.WEATHER_MAX_PRECIPITATION) || 0,
   },
+  db: {
+    host: process.env.DB_HOST || "localhost",
+    port: parseInt(process.env.DB_PORT, 10) || 5432,
+    database: process.env.DB_NAME || "equipment_maintenance",
+    username: process.env.DB_USER || "app_user",
+    password: process.env.DB_PASSWORD || "app_password",
+    dialect: "postgres",
+    logging: process.env.DB_LOGGING === "true" ? console.log : false,
+    pool: {
+      max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
+      min: parseInt(process.env.DB_POOL_MIN, 10) || 0,
+      acquire: parseInt(process.env.DB_POOL_ACQUIRE, 10) || 30000,
+      idle: parseInt(process.env.DB_POOL_IDLE, 10) || 10000,
+    },
+  },
 };
