@@ -28,3 +28,16 @@ export const updateStatusSchema = Joi.object({
     .valid("new", "in_progress", "done", "rejected")
     .required(),
 }).options({ stripUnknown: true });
+
+export const assignTeamSchema = Joi.object({
+  assignees: Joi.array()
+    .items(
+      Joi.object({
+        technicianId: Joi.string().uuid().required(),
+        role: Joi.string().valid("lead", "member").required(),
+        hours: Joi.number().min(0).max(1000).required(),
+      }),
+    )
+    .min(1)
+    .required(),
+}).options({ stripUnknown: true });

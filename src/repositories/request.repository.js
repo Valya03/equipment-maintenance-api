@@ -9,7 +9,8 @@ export class RequestRepository extends BaseRepository {
   _toApiFormat(instance) {
     if (!instance) return null;
     const plain = instance.get({ plain: true });
-    return {
+
+    const result = {
       id: plain.id,
       equipmentId: plain.equipment_id,
       title: plain.title,
@@ -21,6 +22,14 @@ export class RequestRepository extends BaseRepository {
       createdAt: plain.createdAt,
       updatedAt: plain.updatedAt,
     };
+
+    // Пробрасываю связанные данные, если они были подгружены через include
+    if (plain.equipment) result.equipment = plain.equipment;
+    if (plain.assignees) result.assignees = plain.assignees;
+    if (plain.history) result.history = plain.history;
+    if (plain.assignments) result.assignments = plain.assignments;
+
+    return result;
   }
 
   async findByEquipmentId(equipmentId) {

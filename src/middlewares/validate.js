@@ -19,8 +19,8 @@ export const validate = (schemas) => (req, res, next) => {
     }
   }
 
-  if (schemas.params) {
-    const { error, value } = schemas.params.validate(req.params, {
+  if (schemas.query) {
+    const { error, value } = schemas.query.validate(req.query, {
       abortEarly: false,
     });
     if (error) {
@@ -28,7 +28,12 @@ export const validate = (schemas) => (req, res, next) => {
         errors.push({ field: d.path.join("."), message: d.message }),
       );
     } else {
-      req.params = value;
+      Object.defineProperty(req, "query", {
+        value,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
     }
   }
 
@@ -41,7 +46,12 @@ export const validate = (schemas) => (req, res, next) => {
         errors.push({ field: d.path.join("."), message: d.message }),
       );
     } else {
-      req.query = value;
+      Object.defineProperty(req, "query", {
+        value,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
     }
   }
 

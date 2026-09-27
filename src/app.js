@@ -12,6 +12,9 @@ import healthRoutes from "./routes/health.routes.js";
 import equipmentRoutes from "./routes/equipment.routes.js";
 import requestRoutes from "./routes/request.routes.js";
 
+import siteRoutes from "./routes/site.routes.js";
+import reportRoutes from "./routes/report.routes.js";
+
 const app = express();
 
 // 1. Присвоение requestId
@@ -57,6 +60,8 @@ app.use(express.json({ limit: "1mb" }));
 app.use("/api/health", healthRoutes);
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/requests", requestRoutes);
+app.use("/api/sites", siteRoutes);
+app.use("/api/reports", reportRoutes);
 
 // 8. Обработчик 404
 app.use(notFound);
